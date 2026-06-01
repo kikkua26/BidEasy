@@ -8,6 +8,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 import { useOutlineStore } from '@/stores/outline'
 import { projectApi } from '@/api/project'
+import { outlineApi } from '@/api/outline'
 import type { OutlineNode } from '@/types'
 import OutlineTreeNode from '@/components/outline/OutlineTreeNode.vue'
 
@@ -113,14 +114,84 @@ const genNodeId = ref<string | null>(null)
 async function handleGenerateContent(node: OutlineNode) {
   genNodeId.value = node.id
   try {
-    const { outlineApi } = await import('@/api/outline')
     const res = await outlineApi.generateSection(projectId, node.id)
-    alert(`「${node.title}」内容已生成（${res.data.data.word_count} 字）`)
+    const content = res.data.data.content
+    // 更新右侧预览
+    if (selectedNode.value?.id === node.id) {
+      nodeContent.value = content
+      nodeContentLoaded.value = true
+    }
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '生成失败'
     alert(msg)
   } finally {
     genNodeId.value = null
+  }
+}
+
+// ── 右侧预览编辑 ──
+const selectedNode = ref<OutlineNode | null>(null)
+const nodeContent = ref('')
+const nodeContentLoaded = ref(false)
+const loadingContent = ref(false)
+const editingContent = ref(false)
+const savingContent = ref(false)
+
+async function handleSelectNode(node: OutlineNode) {
+  selectedNode.value = node
+  editingContent.value = false
+  loadingContent.value = true
+  nodeContent.value = ''
+
+  try {
+    // 通过 compose 获取初稿，从中提取该章节内容
+    const res = await outlineApi.compose(projectId)
+    const draft = res.data.data.draft || ''
+    if (draft && node) {
+      const title = node.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const marker = '#'.repeat(Math.min(node.level + 1, 6))
+      const pattern = new RegExp(`${marker} ${title}\\n([\\s\\S]*?)(?=\\n#{1,6} |$)`)
+      const match = draft.match(pattern)
+      nodeContent.value = match ? match[1].trim() : ''
+    }
+  } catch {
+    nodeContent.value = ''
+  } finally {
+    loadingContent.value = false
+    nodeContentLoaded.value = true
+  }
+}
+
+async function loadNodeContent(nodeId: string) {
+  loadingContent.value = true
+  try {
+    const res = await outlineApi.compose(projectId)
+    const draft = res.data.data.draft || ''
+    if (selectedNode.value && draft) {
+      const title = selectedNode.value.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const marker = '#'.repeat(Math.min(selectedNode.value.level + 1, 6))
+      const pattern = new RegExp(`${marker} ${title}\\n([\\s\\S]*?)(?=\\n#{1,6} |$)`)
+      const match = draft.match(pattern)
+      nodeContent.value = match ? match[1].trim() : ''
+    }
+    nodeContentLoaded.value = true
+  } catch {
+    nodeContent.value = ''
+    nodeContentLoaded.value = true
+  } finally {
+    loadingContent.value = false
+  }
+}
+
+async function saveContent() {
+  if (!selectedNode.value) return
+  savingContent.value = true
+  try {
+    // 调用生成接口覆盖内容
+    await outlineApi.generateSection(projectId, selectedNode.value.id)
+    editingContent.value = false
+  } finally {
+    savingContent.value = false
   }
 }
 
@@ -153,116 +224,143 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 
 <template>
   <div class="outline-workbench">
-    <!-- ── 共享概况 ── -->
+    <!-- ── 顶部：项目概况 + 操作栏 ── -->
     <section class="project-info-section">
       <div class="section-label">
         📋 项目概况
         <span class="label-hint">所有AI生成内容均会参考此信息</span>
       </div>
-      <div class="info-row">
-        <textarea
-          v-model="projectInfo"
-          class="info-textarea"
-          placeholder="输入项目背景、工程概况、招标要求等关键信息…&#10;&#10;例如：&#10;• 项目名称：XX市XX路市政工程&#10;• 工程规模：全长3.2km，双向六车道&#10;• 主要施工内容：路基、路面、排水、照明、绿化&#10;• 工期要求：540日历天&#10;• 质量目标：确保优良工程"
-          @blur="saveProjectInfo"
-        />
-        <span class="save-indicator" v-if="savingInfo">保存中…</span>
-      </div>
+      <textarea
+        v-model="projectInfo" class="info-textarea"
+        placeholder="输入项目背景、工程概况、招标要求等…"
+        @blur="saveProjectInfo"
+      />
+      <span class="save-indicator" v-if="savingInfo">保存中…</span>
     </section>
 
-    <!-- ── 操作栏 ── -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <button
-          class="btn btn-primary"
-          :disabled="generating"
-          @click="handleGenerate"
-        >
+        <button class="btn btn-primary" :disabled="generating" @click="handleGenerate">
           <span v-if="generating" class="spinner"></span>
           {{ generating ? 'AI 生成中…' : '🤖 AI生成大纲' }}
         </button>
-        <input
-          v-model="additionalReqs"
-          class="reqs-input"
-          placeholder="额外要求（可选）：如「重点突出安全管理章节」"
-          :disabled="generating"
-          @keydown.enter="handleGenerate"
-        />
+        <input v-model="additionalReqs" class="reqs-input"
+          placeholder="额外要求（可选）" :disabled="generating" @keydown.enter="handleGenerate" />
       </div>
-      <div class="toolbar-right">
-        <button
-          v-if="hasOutline"
-          class="btn btn-success btn-sm"
-          @click="lockOutline"
-        >
-          ✅ 确认大纲，开始生成
-        </button>
-      </div>
+      <button v-if="hasOutline" class="btn btn-success btn-sm" @click="lockOutline">
+        ✅ 确认大纲，下一阶段 →
+      </button>
     </div>
 
-    <!-- ── 加载状态 ── -->
-    <div v-if="generating && !hasOutline" class="loading-section">
-      <span class="spinner-lg"></span>
-      <p>AI 正在分析招标文件并生成大纲…</p>
-      <span class="loading-sub">请稍候，这可能需要 10-30 秒</span>
-    </div>
+    <!-- ── 主区域：左大纲树 + 右预览编辑 ── -->
+    <div class="main-area">
+      <!-- 左：大纲树 + 对话 -->
+      <div class="left-panel">
+        <!-- 加载中 -->
+        <div v-if="generating && !hasOutline" class="loading-section">
+          <span class="spinner-lg"></span>
+          <p>AI 正在分析招标文件并生成大纲…</p>
+          <span class="loading-sub">请稍候，这可能需要 10-30 秒</span>
+        </div>
 
-    <!-- ── 大纲树 ── -->
-    <div v-else-if="hasOutline" class="outline-section">
-      <h3 class="section-title">📑 大纲结构（共 {{ flattenNodes(outlineStore.outlineTree).length }} 节）</h3>
+        <!-- 大纲树 -->
+        <div v-else-if="hasOutline" class="outline-section">
+          <h3 class="section-title">📑 大纲结构（共 {{ flattenNodes(outlineStore.outlineTree).length }} 节）</h3>
+          <div class="outline-tree">
+            <template v-for="node in outlineStore.outlineTree" :key="node.id">
+              <OutlineTreeNode
+                :node="node" :depth="0" :expanded-ids="expandedIds"
+                :editing-node-id="editingNodeId"
+                @toggle="toggleExpand" @select="handleSelectNode"
+                @start-edit="startEdit" @save-edit="saveEdit"
+                @delete-node="deleteNode" @add-child="addChildNode"
+                @generate-content="handleGenerateContent"
+              />
+            </template>
+          </div>
 
-      <div class="outline-tree">
-        <template v-for="node in outlineStore.outlineTree" :key="node.id">
-          <OutlineTreeNode
-            :node="node"
-            :depth="0"
-            :expanded-ids="expandedIds"
-            :editing-node-id="editingNodeId"
-            @toggle="toggleExpand"
-            @start-edit="startEdit"
-            @save-edit="saveEdit"
-            @delete-node="deleteNode"
-            @add-child="addChildNode"
-            @generate-content="handleGenerateContent"
-          />
+          <!-- 对话调整 -->
+          <div class="chat-section">
+            <h4>💬 对话调整大纲</h4>
+            <div class="chat-messages">
+              <div v-for="(msg, i) in chatMessages" :key="i" class="chat-msg" :class="msg.role">
+                <span class="msg-role">{{ msg.role === 'user' ? '👤' : '🤖' }}</span>
+                <span class="msg-content">{{ msg.content }}</span>
+              </div>
+              <div v-if="chatting" class="chat-msg assistant">
+                <span class="msg-role">🤖</span>
+                <span class="msg-content typing"><span class="spinner-sm"></span> 思考中…</span>
+              </div>
+            </div>
+            <div class="chat-input-row">
+              <input v-model="chatInput" class="chat-input"
+                placeholder="如：增加绿色施工章节，合并安全和文明施工"
+                :disabled="chatting" @keydown.enter="sendChat" />
+              <button class="btn btn-primary btn-sm" :disabled="chatting || !chatInput.trim()" @click="sendChat">发送</button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="empty-state">
+          <p>点击 "AI生成大纲" 开始</p>
+          <span class="empty-hint">基于招标文档和项目概况自动生成技术标大纲</span>
+        </div>
+      </div>
+
+      <!-- 右：内容预览编辑 -->
+      <div class="right-panel">
+        <template v-if="selectedNode">
+          <div class="preview-header">
+            <h3>{{ selectedNode.title }}</h3>
+            <span class="preview-level">H{{ selectedNode.level }}</span>
+            <button class="btn-ghost btn-sm" @click="selectedNode = null">✕</button>
+          </div>
+
+          <div class="preview-body">
+            <!-- 加载中 -->
+            <div v-if="loadingContent" class="preview-loading">
+              <span class="spinner"></span> 加载中…
+            </div>
+
+            <!-- 无内容 -->
+            <div v-else-if="!nodeContent" class="preview-empty">
+              <p>该章节暂无内容</p>
+              <button class="btn btn-primary btn-sm" @click="handleGenerateContent(selectedNode)">
+                ⚡ AI 生成此节内容
+              </button>
+            </div>
+
+            <!-- 有内容 -->
+            <template v-else>
+              <div v-if="!editingContent" class="preview-text">
+                {{ nodeContent }}
+              </div>
+              <textarea
+                v-else
+                v-model="nodeContent"
+                class="preview-editor"
+                rows="15"
+              />
+            </template>
+          </div>
+
+          <div v-if="nodeContent" class="preview-footer">
+            <span class="preview-wc">{{ nodeContent.replace(/\s/g, '').length }} 字</span>
+            <div class="preview-actions">
+              <button v-if="!editingContent" class="btn btn-ghost btn-sm" @click="editingContent = true">✏️ 编辑</button>
+              <button v-else class="btn btn-primary btn-sm" :disabled="savingContent" @click="saveContent">
+                <span v-if="savingContent" class="spinner"></span> 保存
+              </button>
+              <button class="btn btn-primary btn-sm" @click="handleGenerateContent(selectedNode)">
+                ⚡ {{ nodeContent ? '重新生成' : 'AI生成' }}
+              </button>
+            </div>
+          </div>
         </template>
-      </div>
-    </div>
 
-    <!-- ── 空状态 ── -->
-    <div v-else class="empty-state">
-      <p>点击 "AI生成大纲" 开始</p>
-      <span class="empty-hint">基于招标文档和项目概况自动生成技术标大纲</span>
-    </div>
-
-    <!-- ── 对话调整 ── -->
-    <div v-if="hasOutline" class="chat-section">
-      <h3 class="section-title">💬 大纲对话调整</h3>
-      <div class="chat-messages">
-        <div
-          v-for="(msg, i) in chatMessages" :key="i"
-          class="chat-msg"
-          :class="msg.role"
-        >
-          <span class="msg-role">{{ msg.role === 'user' ? '👤' : '🤖' }}</span>
-          <span class="msg-content">{{ msg.content }}</span>
+        <div v-else class="preview-placeholder">
+          <p>👈 点击左侧大纲节点<br>查看和编辑内容</p>
         </div>
-        <div v-if="chatting" class="chat-msg assistant">
-          <span class="msg-role">🤖</span>
-          <span class="msg-content typing"><span class="spinner-sm"></span> 思考中…</span>
-        </div>
-      </div>
-      <div class="chat-input-row">
-        <input
-          v-model="chatInput"
-          class="chat-input"
-          placeholder="输入修改意见，如：增加一个绿色施工章节，合并安全管理和文明施工"
-          :disabled="chatting"
-          @keydown.enter="sendChat"
-        />
-        <button class="btn btn-primary btn-sm" :disabled="chatting || !chatInput.trim()" @click="sendChat">
-          发送
-        </button>
       </div>
     </div>
   </div>
@@ -270,8 +368,11 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 
 <style scoped>
 .outline-workbench {
-  padding: 28px 32px;
-  max-width: 960px;
+  padding: 20px 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 /* ── 项目概况 ── */
@@ -279,38 +380,33 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
   background: linear-gradient(135deg, var(--accent-glow), rgba(90, 70, 160, 0.04));
   border: 1px solid rgba(212, 168, 83, 0.15);
   border-radius: var(--radius);
-  padding: 18px 20px;
-  margin-bottom: 20px;
+  padding: 12px 16px;
 }
 
 .section-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--accent);
   font-family: var(--font-mono);
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.label-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 400;
-}
+.label-hint { font-size: 10px; color: var(--text-muted); font-weight: 400; }
 
 .info-textarea {
   width: 100%;
-  min-height: 80px;
+  min-height: 50px;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(212, 168, 83, 0.12);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 13px;
-  line-height: 1.7;
-  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 8px 10px;
   resize: vertical;
   outline: none;
 }
@@ -328,9 +424,8 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 10px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -339,7 +434,7 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 .toolbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 1;
 }
 
@@ -349,7 +444,7 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-primary);
-  padding: 8px 12px;
+  padding: 7px 10px;
   font-family: var(--font-display);
   font-size: 12px;
   outline: none;
@@ -358,146 +453,253 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 .reqs-input:focus { border-color: rgba(212, 168, 83, 0.3); }
 .reqs-input::placeholder { color: var(--text-muted); font-size: 11px; }
 
-/* ── 大纲 ── */
-.outline-section {
-  margin-bottom: 24px;
+/* ── 主区域：两栏 ── */
+.main-area {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  min-height: 0;
+  overflow: hidden;
 }
 
+.left-panel {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.right-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 300px;
+}
+
+/* ── 大纲 ── */
+.outline-section { flex: 1; }
+
 .section-title {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .outline-tree {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px;
-}
-
-/* ── 空状态 ── */
-.empty-state {
-  text-align: center;
-  padding: 60px;
-  background: var(--surface);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-}
-
-.empty-state p {
-  font-size: 15px;
-  color: var(--text-secondary);
-}
-
-.empty-hint {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 6px;
-  display: block;
+  border-radius: 6px;
+  padding: 4px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 /* ── 对话 ── */
 .chat-section {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
+  border-radius: 6px;
+  padding: 12px;
 }
 
+.chat-section h4 { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+
 .chat-messages {
-  max-height: 300px;
+  max-height: 150px;
   overflow-y: auto;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .chat-msg {
   display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 13px;
-  line-height: 1.6;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.chat-msg.user .msg-content {
-  color: var(--blue);
-}
-
-.chat-msg.assistant .msg-content {
-  color: var(--text-primary);
-}
-
+.chat-msg.user .msg-content { color: var(--blue); }
+.chat-msg.assistant .msg-content { color: var(--text-primary); }
 .msg-role { flex-shrink: 0; }
+.typing { opacity: .6; }
 
-.typing { opacity: .6; animation: pulse 1.5s ease infinite; }
-
-.chat-input-row {
-  display: flex;
-  gap: 8px;
-}
+.chat-input-row { display: flex; gap: 6px; }
 
 .chat-input {
   flex: 1;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--text-primary);
-  padding: 8px 12px;
+  padding: 6px 10px;
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
 }
 
 .chat-input:focus { border-color: rgba(212, 168, 83, 0.3); }
 
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+/* ── 右侧预览 ── */
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.preview-header h3 {
+  flex: 1;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-level {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+
+.preview-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.preview-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  justify-content: center;
+  padding: 40px;
+}
+
+.preview-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+}
+
+.preview-empty p { margin-bottom: 12px; font-size: 13px; }
+
+.preview-text {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.preview-editor {
+  width: 100%;
+  min-height: 200px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 13px;
+  line-height: 1.7;
+  padding: 12px;
+  resize: vertical;
+  outline: none;
+}
+
+.preview-editor:focus { border-color: rgba(212, 168, 83, 0.3); }
+
+.preview-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.preview-wc {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.preview-actions { display: flex; gap: 6px; }
+
+.preview-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* ── 空状态 ── */
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.empty-state p { font-size: 14px; color: var(--text-secondary); }
+
+.empty-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  display: block;
+}
 
 /* ── 加载动画 ── */
-.spinner,
-.spinner-sm,
-.spinner-lg {
+.spinner, .spinner-sm, .spinner-lg {
   display: inline-block;
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin .6s linear infinite;
-  vertical-align: middle;
-  margin-right: 4px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
 }
+.spinner { width: 16px; height: 16px; }
 
 .spinner-sm { width: 12px; height: 12px; border-width: 1.5px; }
+
 .spinner-lg { width: 32px; height: 32px; border-width: 3px; margin-bottom: 12px; }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .loading-section {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  padding: 40px 20px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   text-align: center;
 }
 
-.loading-section p {
-  font-size: 14px;
-  color: var(--text-secondary);
-  font-family: var(--font-display);
-}
+.loading-section p { font-size: 14px; color: var(--text-secondary); }
 
 .loading-sub {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 6px;
+  margin-top: 4px;
 }
 </style>

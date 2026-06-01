@@ -14,6 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'toggle': [nodeId: string]
+  'select': [node: OutlineNode]
   'start-edit': [node: OutlineNode]
   'save-edit': [nodeId: string, title: string]
   'delete-node': [nodeId: string]
@@ -47,13 +48,13 @@ function handleSave() {
 
 <template>
   <div class="outline-node" :class="[levelClass, statusClass]">
-    <div class="node-header" @click="emit('toggle', node.id)">
+    <div class="node-header">
       <div class="node-bar" :style="{ marginLeft: depth * 24 + 'px' }" />
 
-      <span v-if="hasChildren" class="node-toggle" :class="{ expanded: isExpanded }">▶</span>
+      <span v-if="hasChildren" class="node-toggle" :class="{ expanded: isExpanded }" @click="emit('toggle', node.id)">▶</span>
       <span v-else class="node-toggle-spacer" />
 
-      <div class="node-info">
+      <div class="node-info" @click="emit('select', node)">
         <span v-if="!isEditing" class="node-title">{{ node.title }}</span>
         <input
           v-else
@@ -84,6 +85,7 @@ function handleSave() {
         :expanded-ids="expandedIds"
         :editing-node-id="editingNodeId"
         @toggle="emit('toggle', $event)"
+        @select="emit('select', $event)"
         @start-edit="emit('start-edit', $event)"
         @save-edit="(nodeId: string, title: string) => emit('save-edit', nodeId, title)"
         @delete-node="emit('delete-node', $event)"
