@@ -1,12 +1,45 @@
 """大纲服务 - AI大纲生成和对话调整"""
 
 import json
+import re
 from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
+
+
+def _extract_json(text: str) -> dict:
+    """从 AI 回复中鲁棒地提取 JSON（处理 markdown 代码块和前后文字）"""
+    # 尝试从 ```json ... ``` 中提取
+    if "```json" in text:
+        # 取最后一个 ```json 块（防止 AI 在示例中用了别的代码块）
+        parts = text.rsplit("```json", 1)
+        if len(parts) > 1:
+            inner = parts[1].split("```", 1)[0].strip()
+            return json.loads(inner)
+
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("{") and part.endswith("}"):
+                try:
+                    return json.loads(part)
+                except json.JSONDecodeError:
+                    continue
+
+    # 尝试用正则找到最大的 JSON 对象
+    matches = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+    for m in sorted(matches, key=len, reverse=True):
+        try:
+            return json.loads(m)
+        except json.JSONDecodeError:
+            continue
+
+    raise ValueError("无法从回复中提取 JSON")
+
 from app.prompts.outline_prompts import (
     OUTLINE_GENERATE_PROMPT,
     OUTLINE_CHAT_PROMPT,
@@ -64,13 +97,8 @@ class OutlineService:
         # 解析JSON输出
         raw = response.content
         try:
-            if "```json" in raw:
-                raw = raw.split("```json")[1].split("```")[0].strip()
-            elif "```" in raw:
-                raw = raw.split("```")[1].split("```")[0].strip()
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            # JSON解析失败时，用简单规则生成大纲
+            return _extract_json(raw)
+        except (json.JSONDecodeError, ValueError):
             return self._fallback_outline_generation(document_text, project_info)
 
     async def chat_refine_outline(
@@ -104,17 +132,14 @@ class OutlineService:
 
         raw = response.content
         try:
-            if "```json" in raw:
-                raw = raw.split("```json")[1].split("```")[0].strip()
-            elif "```" in raw:
-                raw = raw.split("```")[1].split("```")[0].strip()
-            data = json.loads(raw)
+            # 从 AI 回复中提取 JSON（AI 可能在 JSON 前后加文字）
+            data = _extract_json(raw)
             return {
                 "message": data.get("reply", "大纲已更新"),
                 "outline": data.get("outline", current_outline),
                 "changes": data.get("changes", []),
             }
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             return {
                 "message": response.content,
                 "outline": current_outline,

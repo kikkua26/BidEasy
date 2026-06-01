@@ -110,12 +110,21 @@ function addChildNode(parentId: string | null, level: number) {
 
 // ── 单节生成 ──
 const genNodeId = ref<string | null>(null)
+const toastMsg = ref('')
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(msg: string) {
+  toastMsg.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastMsg.value = '' }, 2500)
+}
 
 async function handleGenerateContent(node: OutlineNode) {
   genNodeId.value = node.id
   try {
     const res = await outlineApi.generateSection(projectId, node.id)
     const content = res.data.data.content
+    showToast('内容已生成（' + res.data.data.word_count + ' 字）')
     // 更新右侧预览
     if (selectedNode.value?.id === node.id) {
       nodeContent.value = content
@@ -123,7 +132,7 @@ async function handleGenerateContent(node: OutlineNode) {
     }
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '生成失败'
-    alert(msg)
+    showToast('生成失败: ' + msg)
   } finally {
     genNodeId.value = null
   }
@@ -271,6 +280,7 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
               <OutlineTreeNode
                 :node="node" :depth="0" :expanded-ids="expandedIds"
                 :editing-node-id="editingNodeId"
+                :generating-node-id="genNodeId"
                 @toggle="toggleExpand" @select="handleSelectNode"
                 @start-edit="startEdit" @save-edit="saveEdit"
                 @delete-node="deleteNode" @add-child="addChildNode"
@@ -363,6 +373,9 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
         </div>
       </div>
     </div>
+
+    <!-- Toast 提示 -->
+    <div v-if="toastMsg" class="toast">{{ toastMsg }}</div>
   </div>
 </template>
 
@@ -681,6 +694,18 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 .spinner-lg { width: 32px; height: 32px; border-width: 3px; margin-bottom: 12px; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-3); color: var(--text-primary);
+  padding: 10px 22px; border-radius: 8px;
+  font-size: 12px; font-family: var(--font-mono);
+  border: 1px solid var(--border); z-index: 999;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  animation: fadeUp .3s ease;
+}
+@keyframes fadeUp { from { opacity:0; transform: translateX(-50%) translateY(10px); } }
 
 .loading-section {
   display: flex;

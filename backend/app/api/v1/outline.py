@@ -1,8 +1,11 @@
 """大纲管理 API"""
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+logger = logging.getLogger("uvicorn")
 
 from app.core.dependencies import get_db
 from app.schemas import (
@@ -214,64 +217,72 @@ async def chat_outline(
     body: OutlineChatRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """与Agent对话调整大纲"""
-    await _get_project(project_id, db)
+    """与Agent对话调整大纲（重新生成 + 用户反馈）"""
+    project = await _get_project(project_id, db)
 
-    # 获取当前大纲
+    # 获取招文
+    doc_result = await db.execute(
+        select(Document).where(Document.project_id == project_id).order_by(Document.created_at.desc())
+    )
+    docs = doc_result.scalars().all()
+    doc_text = "\n\n".join(d.raw_text or "" for d in docs)
+
+    # 获取评分点
+    from app.db.models import ScoringCriteria
+    scoring_result = await db.execute(
+        select(ScoringCriteria).where(ScoringCriteria.project_id == project_id)
+    )
+    scorings = list(scoring_result.scalars().all())
+
+    # 基于用户反馈重新生成大纲
+    from app.services.outline_service import OutlineService
+    service = OutlineService()
+    new_outline = await service.generate_outline(
+        project_info=project.project_info or "",
+        document_text=doc_text,
+        scoring_criteria=[
+            {"category": s.category, "item": s.item_name, "score": float(s.max_score or 0), "desc": s.description}
+            for s in scorings
+        ],
+        additional_requirements=body.message,
+    )
+
+    # 保存新大纲（先清旧）
+    old_nodes = await db.execute(select(OutlineNode).where(OutlineNode.project_id == project_id))
+    for n in old_nodes.scalars().all():
+        await db.delete(n)
+    await db.flush()
+
+    async def save_nodes(nodes: list[dict], parent_id: str | None = None, order: int = 0) -> int:
+        for node_data in nodes:
+            node = OutlineNode(
+                project_id=project_id,
+                parent_id=parent_id,
+                level=node_data["level"],
+                title=node_data["title"],
+                sort_order=order,
+                ai_suggested=True,
+                status="draft",
+            )
+            db.add(node)
+            await db.flush()
+            children = node_data.get("children", [])
+            if children:
+                await save_nodes(children, node.id, 0)
+            order += 1
+        return order
+
+    await save_nodes(new_outline)
+
+    # 返回新大纲
     result = await db.execute(
         select(OutlineNode).where(OutlineNode.project_id == project_id).order_by(OutlineNode.sort_order)
     )
     nodes = list(result.scalars().all())
-    current_outline = _build_outline_tree(nodes)
+    tree = _build_outline_tree(nodes)
 
-    # 获取项目信息
-    project = await _get_project(project_id, db)
-
-    # 调用 AI 调整大纲
-    from app.services.outline_service import OutlineService
-    service = OutlineService()
-    response = await service.chat_refine_outline(
-        current_outline=current_outline,
-        user_message=body.message,
-        project_info=project.project_info or "",
-    )
-
-    # 如果 AI 返回了新大纲，保存到数据库
-    new_outline = response.get("outline")
-    if new_outline:
-        # 清除旧节点
-        old = await db.execute(select(OutlineNode).where(OutlineNode.project_id == project_id))
-        for n in old.scalars().all():
-            await db.delete(n)
-        await db.flush()
-
-        # 递归保存新大纲
-        async def save_nodes(nodes: list[dict], parent_id: str | None = None, order: int = 0) -> int:
-            for node_data in nodes:
-                node = OutlineNode(
-                    project_id=project_id,
-                    parent_id=parent_id,
-                    level=node_data["level"],
-                    title=node_data["title"],
-                    sort_order=order,
-                    ai_suggested=True,
-                    status="draft",
-                )
-                db.add(node)
-                await db.flush()
-                children = node_data.get("children", [])
-                if children:
-                    await save_nodes(children, node.id, 0)
-                order += 1
-            return order
-
-        await save_nodes(new_outline)
-
-        # 重新获取树结构
-        result = await db.execute(
-            select(OutlineNode).where(OutlineNode.project_id == project_id).order_by(OutlineNode.sort_order)
-        )
-        nodes = list(result.scalars().all())
-        response["outline"] = _build_outline_tree(nodes)
-
-    return ResponseModel(data=response)
+    return ResponseModel(data={
+        "message": f"已根据「{body.message}」重新生成大纲",
+        "outline": tree,
+        "changes": ["大纲已重新生成"],
+    })

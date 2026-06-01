@@ -10,6 +10,7 @@ const props = defineProps<{
   depth: number
   expandedIds: Set<string>
   editingNodeId: string | null
+  generatingNodeId: string | null
 }>()
 
 const emit = defineEmits<{
@@ -33,6 +34,7 @@ watch(() => props.editingNodeId, (id) => {
 
 const isExpanded = computed(() => props.expandedIds.has(props.node.id))
 const isEditing = computed(() => props.editingNodeId === props.node.id)
+const isGenerating = computed(() => props.generatingNodeId === props.node.id)
 const hasChildren = computed(() => props.node.children && props.node.children.length > 0)
 const nextLevel = computed(() => Math.min(props.node.level + 1, 4))
 
@@ -69,7 +71,16 @@ function handleSave() {
       </div>
 
       <div class="node-actions" @click.stop>
-        <button class="node-btn node-btn-gen" @click="emit('generate-content', node)" title="AI生成此节内容">⚡</button>
+        <button
+          class="node-btn node-btn-gen"
+          :class="{ generating: isGenerating }"
+          :disabled="isGenerating"
+          @click="emit('generate-content', node)"
+          :title="isGenerating ? '正在生成…' : 'AI生成此节内容'"
+        >
+          <span v-if="isGenerating" class="spinner-xs"></span>
+          <span v-else>⚡</span>
+        </button>
         <button v-if="!isEditing" class="node-btn" @click="emit('start-edit', node)" title="编辑">✏️</button>
         <button v-if="node.level < 4" class="node-btn" @click="emit('add-child', node.id, nextLevel)" title="添加子章节">➕</button>
         <button class="node-btn node-btn-delete" @click="emit('delete-node', node.id)" title="删除">🗑️</button>
@@ -84,6 +95,7 @@ function handleSave() {
         :depth="depth + 1"
         :expanded-ids="expandedIds"
         :editing-node-id="editingNodeId"
+        :generating-node-id="generatingNodeId"
         @toggle="emit('toggle', $event)"
         @select="emit('select', $event)"
         @start-edit="emit('start-edit', $event)"
@@ -162,5 +174,17 @@ function handleSave() {
 .node-btn:hover { background: var(--surface-3); }
 .node-btn-gen { color: var(--accent); font-size: 11px; }
 .node-btn-gen:hover { background: var(--accent-glow) !important; }
+.node-btn-gen.generating { opacity: 1; cursor: wait; }
 .node-btn-delete:hover { background: rgba(212, 83, 83, 0.15); }
+
+.spinner-xs {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
