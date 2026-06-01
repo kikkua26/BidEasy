@@ -9,6 +9,7 @@ import { useProjectStore } from '@/stores/project'
 import { useOutlineStore } from '@/stores/outline'
 import { projectApi } from '@/api/project'
 import type { OutlineNode } from '@/types'
+import OutlineTreeNode from '@/components/outline/OutlineTreeNode.vue'
 
 const route = useRoute()
 const router = useRouter()

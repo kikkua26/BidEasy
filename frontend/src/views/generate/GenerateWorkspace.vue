@@ -9,6 +9,7 @@ import { useOutlineStore } from '@/stores/outline'
 import { useGenerateStore } from '@/stores/generate'
 import { useProjectStore } from '@/stores/project'
 import type { OutlineNode } from '@/types'
+import SectionCard from '@/components/outline/SectionCard.vue'
 
 const route = useRoute()
 const router = useRouter()
