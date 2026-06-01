@@ -38,22 +38,46 @@ async function saveProjectInfo() {
   }
 }
 
+// ── 取消控制器 ──
+let abortController: AbortController | null = null
+
+function createAbortController() {
+  abortController?.abort()
+  abortController = new AbortController()
+  return abortController
+}
+
+function cancelAI() {
+  if (abortController) {
+    abortController.abort()
+    abortController = null
+  }
+  generating.value = false
+  chatting.value = false
+  genNodeId.value = null
+  showToast('已终止 AI 操作')
+}
+
 // ── 大纲生成 ──
 const generating = ref(false)
 const additionalReqs = ref('')
 
 async function handleGenerate() {
   generating.value = true
+  const ac = createAbortController()
   try {
     await outlineStore.generateOutline(projectId,
-      additionalReqs.value || undefined
+      additionalReqs.value || undefined,
+      ac.signal
     )
+    showToast('大纲生成完成')
   } catch (e: unknown) {
+    if ((e as Error).name === 'CanceledError' || (e as Error).name === 'AbortError') return
     const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '生成失败'
-    alert(msg)
+    showToast(msg)
   } finally {
     generating.value = false
-    nextTick(() => { /* scroll to outline */ })
+    abortController = null
   }
 }
 
@@ -68,16 +92,19 @@ async function sendChat() {
   chatMessages.value.push({ role: 'user', content: msg })
   chatInput.value = ''
   chatting.value = true
+  const ac = createAbortController()
 
   try {
-    const result = await outlineStore.chatRefine(projectId, msg)
+    const result = await outlineStore.chatRefine(projectId, msg, ac.signal)
     const reply = result?.message || '大纲已更新'
     chatMessages.value.push({ role: 'assistant', content: reply })
   } catch (e: unknown) {
+    if ((e as Error).name === 'CanceledError' || (e as Error).name === 'AbortError') return
     const errMsg = (e as Error).message || '对话失败'
-    chatMessages.value.push({ role: 'assistant', content: `抱歉，出错了：${errMsg}` })
+    chatMessages.value.push({ role: 'assistant', content: `出错了：${errMsg}` })
   } finally {
     chatting.value = false
+    abortController = null
   }
 }
 
@@ -111,26 +138,56 @@ function addChildNode(parentId: string | null, level: number) {
 // ── 单节生成 ──
 const genNodeId = ref<string | null>(null)
 const toastMsg = ref('')
+const genTotalCount = ref(0)
+const genCurrentIndex = ref(0)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 function showToast(msg: string) {
   toastMsg.value = msg
   if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toastMsg.value = '' }, 2500)
+  toastTimer = setTimeout(() => { toastMsg.value = '' }, 3000)
 }
+
+// 存储所有已生成的内容 { [outline_id]: { title, content, wordCount } }
+const allContents = ref<Record<string, { title: string; content: string; wordCount: number }>>({})
 
 async function handleGenerateContent(node: OutlineNode) {
   genNodeId.value = node.id
+  const ac = createAbortController()
   try {
-    const res = await outlineApi.generateSection(projectId, node.id)
-    const content = res.data.data.content
-    showToast('内容已生成（' + res.data.data.word_count + ' 字）')
+    const res = await outlineApi.generateSection(projectId, node.id, ac.signal)
+    const data = res.data.data
+    const childContents = data.children_contents || {}
+    const totalCount = 1 + Object.keys(childContents).length
+
+    // 保存自身内容
+    allContents.value[node.id] = {
+      title: node.title,
+      content: data.content,
+      wordCount: data.word_count,
+    }
+
+    // 保存所有子内容
+    for (const [childId, childData] of Object.entries(childContents)) {
+      allContents.value[childId] = {
+        title: (childData as { title: string }).title || '',
+        content: (childData as { content: string }).content || '',
+        wordCount: (childData as { word_count: number }).word_count || 0,
+      }
+    }
+
+    showToast(`已生成 ${totalCount} 节内容（${data.word_count} 字）`)
+
     // 更新右侧预览
-    if (selectedNode.value?.id === node.id) {
-      nodeContent.value = content
-      nodeContentLoaded.value = true
+    if (selectedNode.value) {
+      const sid = selectedNode.value.id
+      if (allContents.value[sid]) {
+        nodeContent.value = allContents.value[sid].content
+        nodeContentLoaded.value = true
+      }
     }
   } catch (e: unknown) {
+    if ((e as Error).name === 'CanceledError' || (e as Error).name === 'AbortError') return
     const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '生成失败'
     showToast('生成失败: ' + msg)
   } finally {
@@ -152,11 +209,20 @@ async function handleSelectNode(node: OutlineNode) {
   loadingContent.value = true
   nodeContent.value = ''
 
+  // 优先使用已缓存的内容
+  const cached = allContents.value[node.id]
+  if (cached?.content) {
+    nodeContent.value = cached.content
+    loadingContent.value = false
+    nodeContentLoaded.value = true
+    return
+  }
+
+  // 尝试从 compose 获取
   try {
-    // 通过 compose 获取初稿，从中提取该章节内容
     const res = await outlineApi.compose(projectId)
     const draft = res.data.data.draft || ''
-    if (draft && node) {
+    if (draft) {
       const title = node.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const marker = '#'.repeat(Math.min(node.level + 1, 6))
       const pattern = new RegExp(`${marker} ${title}\\n([\\s\\S]*?)(?=\\n#{1,6} |$)`)
@@ -249,9 +315,19 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 
     <div class="toolbar">
       <div class="toolbar-left">
-        <button class="btn btn-primary" :disabled="generating" @click="handleGenerate">
-          <span v-if="generating" class="spinner"></span>
-          {{ generating ? 'AI 生成中…' : '🤖 AI生成大纲' }}
+        <button v-if="!generating" class="btn btn-primary" @click="handleGenerate">
+          🤖 AI生成大纲
+        </button>
+        <button v-else class="btn btn-danger btn-sm" @click="cancelAI">
+          ⏹ 终止生成
+        </button>
+        <!-- 全局终止按钮（内容生成/对话时显示） -->
+        <button
+          v-if="(genNodeId || chatting) && !generating"
+          class="btn btn-danger btn-sm"
+          @click="cancelAI"
+        >
+          ⏹ 终止 {{ genNodeId ? '内容生成' : '对话' }}
         </button>
         <input v-model="additionalReqs" class="reqs-input"
           placeholder="额外要求（可选）" :disabled="generating" @keydown.enter="handleGenerate" />

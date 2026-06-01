@@ -30,6 +30,7 @@ class GenerateService:
         project_info: str,
         scoring_criteria: list[dict[str, Any]],
         sibling_sections: list[str],
+        parent_title: str = "",
     ) -> str:
         """生成单个章节内容
 

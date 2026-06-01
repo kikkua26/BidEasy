@@ -23,10 +23,10 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   /** AI生成大纲 */
-  async function generateOutline(projectId: string, requirements?: string) {
+  async function generateOutline(projectId: string, requirements?: string, signal?: AbortSignal) {
     generating.value = true
     try {
-      const res = await outlineApi.generate(projectId, requirements)
+      const res = await outlineApi.generate(projectId, requirements, signal)
       outlineTree.value = res.data.data as OutlineNode[]
       return res.data.data as OutlineNode[]
     } finally {
@@ -35,8 +35,8 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   /** 对话调整大纲 */
-  async function chatRefine(projectId: string, message: string) {
-    const res = await outlineApi.chat(projectId, message)
+  async function chatRefine(projectId: string, message: string, signal?: AbortSignal) {
+    const res = await outlineApi.chat(projectId, message, signal)
     const data = res.data.data
     if (data?.outline) {
       outlineTree.value = data.outline

@@ -1,10 +1,9 @@
 /**
- * 大纲管理 API
+ * 大纲管理 API（支持 AbortController 取消）
  */
 import client from './client'
 import type {
-  OutlineNode, SectionContent, ScoringCriteria,
-  OutlineChatResponse, ApiResponse, SSEContentEvent,
+  OutlineNode, OutlineChatResponse, ApiResponse,
 } from '@/types'
 
 export const outlineApi = {
@@ -15,10 +14,7 @@ export const outlineApi = {
 
   /** 创建节点 */
   createNode(projectId: string, data: {
-    parent_id?: string | null
-    level: number
-    title: string
-    sort_order?: number
+    parent_id?: string | null; level: number; title: string; sort_order?: number
   }) {
     return client.post<ApiResponse<OutlineNode>>(`/v1/projects/${projectId}/outline/nodes`, data)
   },
@@ -33,32 +29,30 @@ export const outlineApi = {
     return client.delete<ApiResponse<null>>(`/v1/projects/${projectId}/outline/nodes/${nodeId}`)
   },
 
-  /** AI生成大纲 */
-  generate(projectId: string, additionalRequirements?: string) {
-    return client.post<ApiResponse<OutlineNode[]>>(`/v1/projects/${projectId}/outline/generate`, {
-      additional_requirements: additionalRequirements,
-    })
-  },
-
-  /** 对话调整大纲 */
-  chat(projectId: string, message: string) {
-    return client.post<ApiResponse<OutlineChatResponse>>(`/v1/projects/${projectId}/outline/chat`, {
-      message,
-    })
-  },
-
-  /** 生成章节内容 */
-  generateSection(projectId: string, outlineId: string) {
-    return client.post<ApiResponse<{ outline_id: string; content: string; word_count: number }>>(
-      `/v1/projects/${projectId}/sections/${outlineId}/generate`
+  /** AI生成大纲（可取消） */
+  generate(projectId: string, additionalRequirements?: string, signal?: AbortSignal) {
+    return client.post<ApiResponse<OutlineNode[]>>(
+      `/v1/projects/${projectId}/outline/generate`,
+      { additional_requirements: additionalRequirements },
+      { signal }
     )
   },
 
-  /** 流式生成章节内容 */
-  streamSection(projectId: string, outlineId: string): EventSource {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
-    return new EventSource(
-      `${baseUrl}/v1/projects/${projectId}/sections/${outlineId}/stream`
+  /** 对话调整大纲 */
+  chat(projectId: string, message: string, signal?: AbortSignal) {
+    return client.post<ApiResponse<OutlineChatResponse>>(
+      `/v1/projects/${projectId}/outline/chat`,
+      { message },
+      { signal }
+    )
+  },
+
+  /** 生成章节内容（可取消，recursive=true 则递归生成子节） */
+  generateSection(projectId: string, outlineId: string, signal?: AbortSignal) {
+    return client.post<ApiResponse<{ outline_id: string; content: string; word_count: number; children_contents?: Record<string, { content: string; word_count: number }> }>>(
+      `/v1/projects/${projectId}/sections/${outlineId}/generate`,
+      { recursive: true },
+      { signal }
     )
   },
 

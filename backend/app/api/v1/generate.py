@@ -27,15 +27,33 @@ async def generate_section(
     outline_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """生成单个章节内容（异步任务）"""
-    project = await _get_project(project_id, db)
+    """生成章节内容（支持递归生成子节）"""
+    import json as _json
+    from app.services.generate_service import GenerateService
 
-    # 获取大纲节点
-    node_result = await db.execute(
-        select(OutlineNode).where(OutlineNode.id == outline_id, OutlineNode.project_id == project_id)
+    project = await _get_project(project_id, db)
+    service = GenerateService()
+
+    # 获取大纲树（用于递归生成）
+    all_nodes_result = await db.execute(
+        select(OutlineNode).where(OutlineNode.project_id == project_id)
     )
-    node = node_result.scalar_one_or_none()
-    if not node:
+    all_nodes = {str(n.id): n for n in all_nodes_result.scalars().all()}
+    from app.api.v1.outline import _build_outline_tree
+    tree = _build_outline_tree(list(all_nodes.values()))
+
+    # 找到目标节点
+    def find_node(nodes: list, target_id: str):
+        for n in nodes:
+            if n["id"] == target_id:
+                return n
+            found = find_node(n.get("children", []), target_id)
+            if found:
+                return found
+        return None
+
+    target_node = find_node(tree, outline_id)
+    if not target_node:
         raise HTTPException(status_code=404, detail="大纲节点不存在")
 
     # 获取评分点
@@ -43,60 +61,83 @@ async def generate_section(
         select(ScoringCriteria).where(ScoringCriteria.project_id == project_id)
     )
     scorings = list(scoring_result.scalars().all())
+    scoring_list = [
+        {"category": s.category, "item": s.item_name, "score": float(s.max_score or 0), "desc": s.description}
+        for s in scorings
+    ]
 
-    # 获取兄弟节点（同级章节）
-    siblings_result = await db.execute(
-        select(OutlineNode).where(
-            OutlineNode.project_id == project_id,
-            OutlineNode.level == node.level,
+    # 收集所有要生成的节点（自身 + 所有子孙）
+    def collect_flat(node: dict) -> list[dict]:
+        result = [node]
+        for child in node.get("children", []):
+            result.extend(collect_flat(child))
+        return result
+
+    nodes_to_generate = collect_flat(target_node)
+    children_contents: dict[str, dict] = {}
+    all_generated_content = ""
+    total_word_count = 0
+
+    # 依次生成（可被前端 AbortController 中断）
+    for i, nd in enumerate(nodes_to_generate):
+        siblings = [
+            c["title"] for c in target_node.get("children", [])
+            if c["id"] != nd["id"]
+        ]
+        content_text = await service.generate_section(
+            section_title=nd["title"],
+            section_level=nd.get("level", 1),
+            project_info=project.project_info or "",
+            scoring_criteria=scoring_list,
+            sibling_sections=siblings,
+            parent_title=target_node["title"] if nd["id"] != target_node["id"] else "",
         )
-    )
-    siblings = list(siblings_result.scalars().all())
 
-    # 调用写作Agent生成内容
-    from app.services.generate_service import GenerateService
-    service = GenerateService()
-
-    content_text = await service.generate_section(
-        section_title=node.title,
-        section_level=node.level,
-        project_info=project.project_info or "",
-        scoring_criteria=[
-            {"category": s.category, "item": s.item_name, "score": float(s.max_score or 0), "desc": s.description}
-            for s in scorings
-        ],
-        sibling_sections=[s.title for s in siblings if s.id != node.id],
-    )
-
-    # 保存生成内容（覆盖之前的版本）
-    existing = await db.execute(
-        select(SectionContent).where(SectionContent.outline_id == outline_id)
-    )
-    section = existing.scalar_one_or_none()
-
-    if section:
-        section.content = content_text
-        section.word_count = len(content_text)
-        section.version += 1
-        section.status = "generated"
-    else:
-        section = SectionContent(
-            project_id=project_id,
-            outline_id=outline_id,
-            content=content_text,
-            word_count=len(content_text),
-            version=1,
+        # 保存
+        existing = await db.execute(
+            select(SectionContent).where(SectionContent.outline_id == nd["id"])
         )
-        db.add(section)
+        section = existing.scalar_one_or_none()
+        if section:
+            section.content = content_text
+            section.word_count = len(content_text)
+            section.version += 1
+            section.status = "generated"
+        else:
+            section = SectionContent(
+                project_id=project_id,
+                outline_id=nd["id"],
+                content=content_text,
+                word_count=len(content_text),
+                version=1,
+            )
+            db.add(section)
 
-    # 更新大纲节点状态
-    node.status = "confirmed"
-    await db.flush()
+        # 更新节点状态
+        node_obj = all_nodes.get(nd["id"])
+        if node_obj:
+            node_obj.status = "confirmed"
+
+        await db.flush()
+
+        if nd["id"] != outline_id:
+            children_contents[nd["id"]] = {
+                "title": nd["title"],
+                "content": content_text,
+                "word_count": len(content_text),
+            }
+        total_word_count += len(content_text)
+
+        if i == 0:
+            all_generated_content = content_text
 
     return ResponseModel(data={
-        "id": str(section.id),
         "outline_id": outline_id,
-        "content": content_text,
+        "content": all_generated_content,
+        "word_count": total_word_count,
+        "generated_count": len(nodes_to_generate),
+        "children_contents": children_contents,
+    })
         "word_count": len(content_text),
         "version": section.version,
     })
