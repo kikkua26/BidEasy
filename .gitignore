@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Env (不要把密钥提交到仓库)
+.env
+backend/.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads
+backend/uploads/

@@ -1,0 +1,64 @@
+/* ════ CSS 变量 & 全局样式 ════ */
+:root {
+  --bg: #08080b;
+  --surface: #111116;
+  --surface-2: #18181f;
+  --surface-3: #1f1f28;
+  --surface-4: #28283a;
+  --accent: #d4a853;
+  --accent-dim: #b8923f;
+  --accent-glow: rgba(212, 168, 83, 0.12);
+  --green: #4ead6b;
+  --green-glow: rgba(78, 173, 107, 0.12);
+  --red: #d45353;
+  --blue: #5b8dd9;
+  --text-primary: #e8e4dc;
+  --text-secondary: #9e9889;
+  --text-muted: #5e5a52;
+  --border: #252530;
+  --border-light: #2e2e3a;
+  --radius: 10px;
+  --font-display: 'Noto Serif SC', serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-display);
+  background: var(--bg);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+#app { min-height: 100vh; }
+
+/* ── 滚动条 ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── 通用按钮 ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 18px; border: none; border-radius: 8px;
+  font-family: var(--font-display); font-size: 13.5px; font-weight: 600;
+  cursor: pointer; transition: all .25s ease; letter-spacing: .01em;
+}
+
+.btn-primary {
+  background: var(--accent); color: var(--bg);
+}
+.btn-primary:hover { background: #e0b560; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(212,168,83,0.2); }
+.btn-primary:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-ghost {
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid var(--border); padding: 6px 12px; font-size: 12px;
+}
+.btn-ghost:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-danger { background: var(--red); color: white; }
+.btn-success { background: var(--green); color: white; }

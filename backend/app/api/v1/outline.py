@@ -1,0 +1,222 @@
+"""大纲管理 API"""
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.core.dependencies import get_db
+from app.schemas import (
+    ResponseModel,
+    OutlineNodeCreate,
+    OutlineNodeUpdate,
+    OutlineNodeResponse,
+    OutlineGenerateRequest,
+    OutlineChatRequest,
+)
+from app.db.models import OutlineNode, Project, Document
+
+router = APIRouter(prefix="/api/v1/projects/{project_id}/outline", tags=["大纲管理"])
+
+
+async def _get_project(project_id: str, db: AsyncSession) -> Project:
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    return project
+
+
+def _build_outline_tree(nodes: list[OutlineNode], parent_id: str | None = None) -> list[dict]:
+    """构建大纲树结构"""
+    tree = []
+    children = [n for n in nodes if n.parent_id == parent_id]
+    children.sort(key=lambda x: x.sort_order)
+    for node in children:
+        item = OutlineNodeResponse.model_validate(node).model_dump()
+        item["children"] = _build_outline_tree(nodes, node.id)
+        tree.append(item)
+    return tree
+
+
+@router.get("", response_model=ResponseModel)
+async def get_outline(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """获取大纲树"""
+    await _get_project(project_id, db)
+    result = await db.execute(
+        select(OutlineNode).where(OutlineNode.project_id == project_id).order_by(OutlineNode.sort_order)
+    )
+    nodes = list(result.scalars().all())
+    tree = _build_outline_tree(nodes)
+    return ResponseModel(data=tree)
+
+
+@router.post("/nodes", response_model=ResponseModel)
+async def create_node(
+    project_id: str,
+    body: OutlineNodeCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """添加大纲节点"""
+    await _get_project(project_id, db)
+
+    if body.level > 4:
+        raise HTTPException(status_code=400, detail="大纲层级不超过4层")
+
+    node = OutlineNode(
+        project_id=project_id,
+        parent_id=body.parent_id,
+        level=body.level,
+        title=body.title,
+        sort_order=body.sort_order,
+    )
+    db.add(node)
+    await db.flush()
+    return ResponseModel(data=OutlineNodeResponse.model_validate(node))
+
+
+@router.put("/nodes/{node_id}", response_model=ResponseModel)
+async def update_node(
+    project_id: str,
+    node_id: str,
+    body: OutlineNodeUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """更新大纲节点"""
+    result = await db.execute(
+        select(OutlineNode).where(OutlineNode.id == node_id, OutlineNode.project_id == project_id)
+    )
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="节点不存在")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(node, key, value)
+    await db.flush()
+    return ResponseModel(data=OutlineNodeResponse.model_validate(node))
+
+
+@router.delete("/nodes/{node_id}", response_model=ResponseModel)
+async def delete_node(
+    project_id: str,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """删除大纲节点（级联删除子节点）"""
+    result = await db.execute(
+        select(OutlineNode).where(OutlineNode.id == node_id, OutlineNode.project_id == project_id)
+    )
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="节点不存在")
+
+    # 递归查找并删除所有子孙节点
+    async def collect_descendants(parent_id: str) -> list[OutlineNode]:
+        result = await db.execute(select(OutlineNode).where(OutlineNode.parent_id == parent_id))
+        children = list(result.scalars().all())
+        descendants = list(children)
+        for child in children:
+            descendants.extend(await collect_descendants(child.id))
+        return descendants
+
+    all_nodes = [node] + await collect_descendants(node.id)
+    for n in all_nodes:
+        await db.delete(n)
+    return ResponseModel(message=f"已删除 {len(all_nodes)} 个节点")
+
+
+@router.post("/generate", response_model=ResponseModel)
+async def generate_outline(
+    project_id: str,
+    body: OutlineGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """AI生成大纲（基于招标文档和项目概况）"""
+    project = await _get_project(project_id, db)
+
+    # 获取文档文本
+    doc_result = await db.execute(
+        select(Document).where(Document.project_id == project_id).order_by(Document.created_at.desc())
+    )
+    docs = doc_result.scalars().all()
+    doc_text = "\n\n".join(d.raw_text or "" for d in docs)
+
+    if not doc_text and not project.project_info:
+        raise HTTPException(status_code=400, detail="请先导入招标文档或填写项目概况")
+
+    # 获取评分点
+    from app.db.models import ScoringCriteria
+    scoring_result = await db.execute(
+        select(ScoringCriteria).where(ScoringCriteria.project_id == project_id)
+    )
+    scorings = list(scoring_result.scalars().all())
+
+    # 调用 AI 生成大纲（此处为占位，完整实现在 Phase 3）
+    from app.services.outline_service import OutlineService
+    service = OutlineService()
+    outline_nodes = await service.generate_outline(
+        project_info=project.project_info or "",
+        document_text=doc_text,
+        scoring_criteria=[
+            {"category": s.category, "item": s.item_name, "score": float(s.max_score or 0), "desc": s.description}
+            for s in scorings
+        ],
+        additional_requirements=body.additional_requirements,
+    )
+
+    # 保存生成的大纲到数据库
+    saved_nodes = []
+    for node_data in outline_nodes:
+        node = OutlineNode(
+            project_id=project_id,
+            level=node_data["level"],
+            title=node_data["title"],
+            sort_order=node_data.get("sort_order", 0),
+            ai_suggested=True,
+            status="draft",
+        )
+        db.add(node)
+        await db.flush()
+        saved_nodes.append(node)
+
+    # 重新获取树的完整结果
+    result = await db.execute(
+        select(OutlineNode).where(OutlineNode.project_id == project_id).order_by(OutlineNode.sort_order)
+    )
+    nodes = list(result.scalars().all())
+    tree = _build_outline_tree(nodes)
+    return ResponseModel(data=tree)
+
+
+@router.post("/chat", response_model=ResponseModel)
+async def chat_outline(
+    project_id: str,
+    body: OutlineChatRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """与Agent对话调整大纲"""
+    await _get_project(project_id, db)
+
+    # 获取当前大纲
+    result = await db.execute(
+        select(OutlineNode).where(OutlineNode.project_id == project_id).order_by(OutlineNode.sort_order)
+    )
+    nodes = list(result.scalars().all())
+    current_outline = _build_outline_tree(nodes)
+
+    # 获取项目信息
+    project = await _get_project(project_id, db)
+
+    # 调用 AI 调整大纲
+    from app.services.outline_service import OutlineService
+    service = OutlineService()
+    response = await service.chat_refine_outline(
+        current_outline=current_outline,
+        user_message=body.message,
+        project_info=project.project_info or "",
+    )
+
+    return ResponseModel(data=response)
