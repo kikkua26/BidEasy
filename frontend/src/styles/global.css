@@ -62,3 +62,19 @@ body {
 .btn-sm { padding: 6px 14px; font-size: 12px; }
 .btn-danger { background: var(--red); color: white; }
 .btn-success { background: var(--green); color: white; }
+
+/* ── 通用加载动画 ── */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

@@ -51,8 +51,8 @@ function handleClick() {
         <span class="card-level">H{{ node.level }}</span>
       </div>
       <div class="card-status">
-        <span v-if="isGenerating" class="generating-dots">
-          <span></span><span></span><span></span>
+        <span v-if="isGenerating" class="status-generating">
+          <span class="spinner-sm"></span> 生成中…
         </span>
         <span v-else class="status-badge" :class="statusClass">{{ statusText }}</span>
         <span v-if="isDone" class="word-count">{{ wordCount }}字</span>
@@ -64,6 +64,7 @@ function handleClick() {
           :disabled="isGenerating"
           @click.stop="emit('generate', node)"
         >
+          <span v-if="isGenerating" class="spinner-xs"></span>
           {{ isGenerating ? '生成中…' : isDone ? '重新生成' : 'AI生成' }}
         </button>
       </div>
@@ -160,21 +161,31 @@ function handleClick() {
   color: var(--text-muted);
 }
 
-.generating-dots {
+.status-generating {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
   display: flex;
-  gap: 3px;
+  align-items: center;
+  gap: 4px;
 }
 
-.generating-dots span {
-  width: 4px;
-  height: 4px;
+/* ── 转圈动画 ── */
+.spinner-xs,
+.spinner-sm {
+  display: inline-block;
   border-radius: 50%;
-  background: var(--accent);
-  animation: bounce 1.2s ease infinite;
+  animation: spin .6s linear infinite;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
 }
 
-.generating-dots span:nth-child(2) { animation-delay: .15s; }
-.generating-dots span:nth-child(3) { animation-delay: .3s; }
+.spinner-xs { width: 10px; height: 10px; border-width: 1.5px; }
+.spinner-sm { width: 14px; height: 14px; border-width: 2px; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 @keyframes bounce {
   0%, 80%, 100% { transform: translateY(0); opacity: .3; }

@@ -165,7 +165,8 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
           :disabled="generating"
           @click="handleGenerate"
         >
-          {{ generating ? '⚡ 生成中…' : '🤖 AI生成大纲' }}
+          <span v-if="generating" class="spinner"></span>
+          {{ generating ? 'AI 生成中…' : '🤖 AI生成大纲' }}
         </button>
         <input
           v-model="additionalReqs"
@@ -186,8 +187,15 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
       </div>
     </div>
 
+    <!-- ── 加载状态 ── -->
+    <div v-if="generating && !hasOutline" class="loading-section">
+      <span class="spinner-lg"></span>
+      <p>AI 正在分析招标文件并生成大纲…</p>
+      <span class="loading-sub">请稍候，这可能需要 10-30 秒</span>
+    </div>
+
     <!-- ── 大纲树 ── -->
-    <div v-if="hasOutline" class="outline-section">
+    <div v-else-if="hasOutline" class="outline-section">
       <h3 class="section-title">📑 大纲结构（共 {{ flattenNodes(outlineStore.outlineTree).length }} 节）</h3>
 
       <div class="outline-tree">
@@ -228,7 +236,7 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
         </div>
         <div v-if="chatting" class="chat-msg assistant">
           <span class="msg-role">🤖</span>
-          <span class="msg-content typing">思考中…</span>
+          <span class="msg-content typing"><span class="spinner-sm"></span> 思考中…</span>
         </div>
       </div>
       <div class="chat-input-row">
@@ -432,4 +440,51 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 .chat-input:focus { border-color: rgba(212, 168, 83, 0.3); }
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+/* ── 加载动画 ── */
+.spinner,
+.spinner-sm,
+.spinner-lg {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.spinner-sm { width: 12px; height: 12px; border-width: 1.5px; }
+.spinner-lg { width: 32px; height: 32px; border-width: 3px; margin-bottom: 12px; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.loading-section p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+}
+
+.loading-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
 </style>

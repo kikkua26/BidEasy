@@ -108,7 +108,8 @@ function viewContent(node: OutlineNode) {
           :disabled="generatingAll"
           @click="generateAll"
         >
-          {{ generatingAll ? '⚡ 批量生成中…' : '🚀 一键全部生成' }}
+          <span v-if="generatingAll" class="spinner"></span>
+          {{ generatingAll ? '批量生成中…' : '🚀 一键全部生成' }}
         </button>
         <button
           class="btn btn-success"
@@ -261,6 +262,22 @@ function viewContent(node: OutlineNode) {
   line-height: 1.8;
   color: var(--text-secondary);
   white-space: pre-wrap;
+}
+
+/* ── 转圈动画 ── */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(0,0,0,.2);
+  border-top-color: var(--bg);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>
 </template>
