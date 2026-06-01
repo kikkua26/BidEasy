@@ -24,10 +24,8 @@ const savingInfo = ref(false)
 onMounted(async () => {
   await projectStore.fetchProject(projectId)
   projectInfo.value = projectStore.currentProject?.project_info || ''
-
-  if (projectStore.currentProject?.status !== 'draft') {
-    await outlineStore.fetchOutline(projectId)
-  }
+  // 始终加载已有大纲
+  await outlineStore.fetchOutline(projectId)
 })
 
 async function saveProjectInfo() {
@@ -107,6 +105,23 @@ function addChildNode(parentId: string | null, level: number) {
     title: '新章节',
     sort_order: 999,
   })
+}
+
+// ── 单节生成 ──
+const genNodeId = ref<string | null>(null)
+
+async function handleGenerateContent(node: OutlineNode) {
+  genNodeId.value = node.id
+  try {
+    const { outlineApi } = await import('@/api/outline')
+    const res = await outlineApi.generateSection(projectId, node.id)
+    alert(`「${node.title}」内容已生成（${res.data.data.word_count} 字）`)
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '生成失败'
+    alert(msg)
+  } finally {
+    genNodeId.value = null
+  }
 }
 
 // ── 展开/折叠 ──
@@ -208,6 +223,7 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
             @save-edit="saveEdit"
             @delete-node="deleteNode"
             @add-child="addChildNode"
+            @generate-content="handleGenerateContent"
           />
         </template>
       </div>

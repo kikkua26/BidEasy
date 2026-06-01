@@ -18,6 +18,7 @@ const emit = defineEmits<{
   'save-edit': [nodeId: string, title: string]
   'delete-node': [nodeId: string]
   'add-child': [parentId: string | null, level: number]
+  'generate-content': [node: OutlineNode]
 }>()
 
 const localEditTitle = ref('')
@@ -67,6 +68,7 @@ function handleSave() {
       </div>
 
       <div class="node-actions" @click.stop>
+        <button class="node-btn node-btn-gen" @click="emit('generate-content', node)" title="AI生成此节内容">⚡</button>
         <button v-if="!isEditing" class="node-btn" @click="emit('start-edit', node)" title="编辑">✏️</button>
         <button v-if="node.level < 4" class="node-btn" @click="emit('add-child', node.id, nextLevel)" title="添加子章节">➕</button>
         <button class="node-btn node-btn-delete" @click="emit('delete-node', node.id)" title="删除">🗑️</button>
@@ -86,6 +88,7 @@ function handleSave() {
         @save-edit="(nodeId: string, title: string) => emit('save-edit', nodeId, title)"
         @delete-node="emit('delete-node', $event)"
         @add-child="emit('add-child', $event[0], $event[1])"
+        @generate-content="emit('generate-content', $event)"
       />
     </div>
   </div>
@@ -155,5 +158,7 @@ function handleSave() {
   transition: background .15s;
 }
 .node-btn:hover { background: var(--surface-3); }
+.node-btn-gen { color: var(--accent); font-size: 11px; }
+.node-btn-gen:hover { background: var(--accent-glow) !important; }
 .node-btn-delete:hover { background: rgba(212, 83, 83, 0.15); }
 </style>

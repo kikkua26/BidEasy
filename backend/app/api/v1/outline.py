@@ -236,4 +236,42 @@ async def chat_outline(
         project_info=project.project_info or "",
     )
 
+    # 如果 AI 返回了新大纲，保存到数据库
+    new_outline = response.get("outline")
+    if new_outline:
+        # 清除旧节点
+        old = await db.execute(select(OutlineNode).where(OutlineNode.project_id == project_id))
+        for n in old.scalars().all():
+            await db.delete(n)
+        await db.flush()
+
+        # 递归保存新大纲
+        async def save_nodes(nodes: list[dict], parent_id: str | None = None, order: int = 0) -> int:
+            for node_data in nodes:
+                node = OutlineNode(
+                    project_id=project_id,
+                    parent_id=parent_id,
+                    level=node_data["level"],
+                    title=node_data["title"],
+                    sort_order=order,
+                    ai_suggested=True,
+                    status="draft",
+                )
+                db.add(node)
+                await db.flush()
+                children = node_data.get("children", [])
+                if children:
+                    await save_nodes(children, node.id, 0)
+                order += 1
+            return order
+
+        await save_nodes(new_outline)
+
+        # 重新获取树结构
+        result = await db.execute(
+            select(OutlineNode).where(OutlineNode.project_id == project_id).order_by(OutlineNode.sort_order)
+        )
+        nodes = list(result.scalars().all())
+        response["outline"] = _build_outline_tree(nodes)
+
     return ResponseModel(data=response)
