@@ -432,4 +432,3 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 </style>
-</template>
