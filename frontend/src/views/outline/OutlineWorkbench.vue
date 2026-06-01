@@ -84,16 +84,14 @@ async function sendChat() {
 
 // ── 节点编辑 ──
 const editingNodeId = ref<string | null>(null)
-const editTitle = ref('')
 
 function startEdit(node: OutlineNode) {
   editingNodeId.value = node.id
-  editTitle.value = node.title
 }
 
-async function saveEdit(nodeId: string) {
-  if (!editTitle.value.trim()) return
-  await outlineStore.updateNode(projectId, nodeId, { title: editTitle.value })
+async function saveEdit(nodeId: string, title: string) {
+  if (!title.trim()) return
+  await outlineStore.updateNode(projectId, nodeId, { title })
   editingNodeId.value = null
 }
 
@@ -205,7 +203,6 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
             :depth="0"
             :expanded-ids="expandedIds"
             :editing-node-id="editingNodeId"
-            :edit-title="editTitle"
             @toggle="toggleExpand"
             @start-edit="startEdit"
             @save-edit="saveEdit"
