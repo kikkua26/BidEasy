@@ -138,9 +138,6 @@ async def generate_section(
         "generated_count": len(nodes_to_generate),
         "children_contents": children_contents,
     })
-        "word_count": len(content_text),
-        "version": section.version,
-    })
 
 
 @router.get("/sections/{outline_id}/stream")
