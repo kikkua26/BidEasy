@@ -154,7 +154,7 @@ async def generate_outline(
     )
     scorings = list(scoring_result.scalars().all())
 
-    # 调用 AI 生成大纲（此处为占位，完整实现在 Phase 3）
+    # 调用 AI 生成大纲
     from app.services.outline_service import OutlineService
     service = OutlineService()
     outline_nodes = await service.generate_outline(
@@ -167,20 +167,37 @@ async def generate_outline(
         additional_requirements=body.additional_requirements,
     )
 
-    # 保存生成的大纲到数据库
-    saved_nodes = []
-    for node_data in outline_nodes:
-        node = OutlineNode(
-            project_id=project_id,
-            level=node_data["level"],
-            title=node_data["title"],
-            sort_order=node_data.get("sort_order", 0),
-            ai_suggested=True,
-            status="draft",
-        )
-        db.add(node)
-        await db.flush()
-        saved_nodes.append(node)
+    # 清除旧大纲节点
+    old_nodes = await db.execute(
+        select(OutlineNode).where(OutlineNode.project_id == project_id)
+    )
+    for old in old_nodes.scalars().all():
+        await db.delete(old)
+    await db.flush()
+
+    # 递归保存新大纲（含父子关系）
+    async def save_nodes(nodes: list[dict], parent_id: str | None = None, order: int = 0) -> int:
+        for node_data in nodes:
+            node = OutlineNode(
+                project_id=project_id,
+                parent_id=parent_id,
+                level=node_data["level"],
+                title=node_data["title"],
+                sort_order=order,
+                ai_suggested=True,
+                status="draft",
+            )
+            db.add(node)
+            await db.flush()
+
+            children = node_data.get("children", [])
+            if children:
+                await save_nodes(children, node.id, 0)
+
+            order += 1
+        return order
+
+    await save_nodes(outline_nodes)
 
     # 重新获取树的完整结果
     result = await db.execute(
