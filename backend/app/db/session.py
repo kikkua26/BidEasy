@@ -5,12 +5,20 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
+# 连接超时参数（开发模式下无 PostgreSQL 时快速返回）
+connect_args = {
+    "timeout": 3,          # 连接超时 3 秒
+    "command_timeout": 5,  # 命令超时 5 秒
+}
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=5,
+    max_overflow=5,
     pool_pre_ping=True,
+    connect_args=connect_args,
+    pool_recycle=300,
 )
 
 async_session_factory = async_sessionmaker(

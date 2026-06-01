@@ -1,21 +1,57 @@
 """FastAPI 应用入口"""
 
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
-from app.db.session import init_db
+
+logger = logging.getLogger("uvicorn")
+
+
+# ── CORS 中间件（确保错误响应也有 CORS 头）──
+class ForceCORSMiddleware(BaseHTTPMiddleware):
+    """确保所有响应（包括500错误）都有 CORS 头部"""
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception:
+            # 捕获未处理异常，返回带 CORS 头的 500
+            return JSONResponse(
+                status_code=500,
+                content={"code": 50001, "message": "服务器内部错误", "data": None},
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            )
+
+        # 确保所有响应都有 CORS 头
+        if "Access-Control-Allow-Origin" not in response.headers:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期"""
-    # 启动时：初始化数据库
     if settings.DEBUG:
-        await init_db()
+        try:
+            from app.db.session import init_db
+            await init_db()
+            logger.info("数据库初始化成功")
+        except Exception as e:
+            logger.warning(f"数据库未连接: {e}")
     yield
-    # 关闭时：清理资源
 
 
 app = FastAPI(
@@ -28,11 +64,29 @@ app = FastAPI(
 # ── CORS 配置 ──
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 兜底 CORS 中间件
+app.add_middleware(ForceCORSMiddleware)
+
+
+# ── 全局异常处理 ──
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理，确保返回带 CORS 头的 JSON"""
+    logger.exception(f"未处理的异常: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"code": 50001, "message": f"服务器内部错误: {str(exc)}", "data": None},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
 
 
 # ── 注册路由 ──
