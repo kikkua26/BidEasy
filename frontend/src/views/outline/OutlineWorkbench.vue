@@ -169,7 +169,7 @@ const hasOutline = computed(() => outlineStore.outlineTree.length > 0)
         <input
           v-model="additionalReqs"
           class="reqs-input"
-          placeholder="额外要求（可选）：如"重点突出安全管理章节""
+          placeholder="额外要求（可选）：如「重点突出安全管理章节」"
           :disabled="generating"
           @keydown.enter="handleGenerate"
         />
