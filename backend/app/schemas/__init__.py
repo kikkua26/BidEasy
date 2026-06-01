@@ -127,7 +127,7 @@ class OutlineNodeUpdate(BaseModel):
 
 
 class OutlineNodeResponse(BaseModel):
-    """大纲节点响应"""
+    """大纲节点响应（children 由 _build_outline_tree 手动填充）"""
     id: str
     project_id: str
     parent_id: Optional[str] = None
@@ -136,7 +136,6 @@ class OutlineNodeResponse(BaseModel):
     sort_order: int
     status: str
     ai_suggested: bool
-    children: Optional[list["OutlineNodeResponse"]] = None
 
     model_config = {"from_attributes": True}
 
