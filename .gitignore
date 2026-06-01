@@ -24,3 +24,8 @@ Thumbs.db
 
 # Uploads
 backend/uploads/
+backend/data/
+*.db
+
+# Claude
+.claude/

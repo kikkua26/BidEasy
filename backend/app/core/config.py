@@ -1,7 +1,7 @@
 """应用核心配置"""
 
+import os
 from pydantic_settings import BaseSettings
-from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -12,9 +12,9 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
 
-    # ── 数据库 ──
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/qiyi_ai_bid"
-    DATABASE_URL_SYNC: str = "postgresql://postgres:postgres@localhost:5432/qiyi_ai_bid"
+    # ── 数据库（默认 SQLite，生产环境设 DATABASE_URL=postgresql+asyncpg://...）──
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/qiyi_ai_bid.db"
+    DATABASE_URL_SYNC: str = "sqlite:///./data/qiyi_ai_bid.db"
 
     # ── AI 服务 ──
     OPENAI_API_KEY: str = ""
@@ -36,3 +36,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# 确保数据目录存在
+os.makedirs(os.path.dirname(settings.DATABASE_URL.split("///")[-1] if "///" in settings.DATABASE_URL else "./data"), exist_ok=True)

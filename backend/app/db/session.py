@@ -1,25 +1,36 @@
-"""数据库引擎和会话管理"""
+"""数据库引擎和会话管理（支持 SQLite 和 PostgreSQL）"""
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
-# 连接超时参数（开发模式下无 PostgreSQL 时快速返回）
-connect_args = {
-    "timeout": 3,          # 连接超时 3 秒
-    "command_timeout": 5,  # 命令超时 5 秒
-}
+# ── 根据数据库类型配置引擎参数 ──
+is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_size=5,
-    max_overflow=5,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-    pool_recycle=300,
-)
+if is_sqlite:
+    # SQLite：使用 NullPool（文件数据库不需要连接池），异步驱动 aiosqlite
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=settings.DEBUG,
+        poolclass=NullPool,
+        connect_args={"check_same_thread": False},
+    )
+else:
+    # PostgreSQL：使用 asyncpg
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=settings.DEBUG,
+        pool_size=5,
+        max_overflow=5,
+        pool_pre_ping=True,
+        connect_args={
+            "timeout": 3,
+            "command_timeout": 5,
+        },
+        pool_recycle=300,
+    )
 
 async_session_factory = async_sessionmaker(
     engine,
