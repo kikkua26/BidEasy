@@ -7,6 +7,7 @@ import type { OutlineNode } from '@/types'
 
 const props = defineProps<{
   node: OutlineNode
+  depth: number
   generatingId: string | null
   streamingContent: string
   sectionContents: Map<string, { content: string; status: string; wordCount: number }>
@@ -43,7 +44,11 @@ function handleClick() {
 </script>
 
 <template>
-  <div class="section-card" :class="[`level-${Math.min(node.level, 4)}`, statusClass]">
+  <div
+    class="section-card"
+    :class="[`level-${Math.min(node.level, 4)}`, statusClass]"
+    :style="{ marginLeft: depth * 28 + 'px' }"
+  >
     <div class="card-main" @click="handleClick">
       <div class="card-bar" />
       <div class="card-info">

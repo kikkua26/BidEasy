@@ -35,6 +35,21 @@ function flattenNodes(nodes: OutlineNode[]): OutlineNode[] {
   return nodes.flatMap(n => [n, ...flattenNodes(n.children || [])])
 }
 
+// 展平的大纲（带深度级别，用于展示全部节点）
+const flattenedOutline = computed(() => {
+  const result: { node: OutlineNode; depth: number }[] = []
+  function walk(nodes: OutlineNode[], depth: number) {
+    for (const n of nodes) {
+      result.push({ node: n, depth })
+      walk(n.children || [], depth + 1)
+    }
+  }
+  walk(outlineStore.outlineTree, 0)
+  return result
+})
+
+const allNodes = computed(() => flattenedOutline.value.map(f => f.node))
+
 // ── 单节生成 ──
 const generatingId = ref<string | null>(null)
 const streamingContent = ref('')
@@ -61,9 +76,8 @@ const generatingAll = ref(false)
 
 async function generateAll() {
   generatingAll.value = true
-  const allNodes = flattenNodes(outlineStore.outlineTree)
 
-  for (const node of allNodes) {
+  for (const node of allNodes.value) {
     if (generateStore.sectionContents.get(node.id)?.status === 'done') continue
     try {
       await generateStore.generateSection(projectId, node.id, node.title)
@@ -82,7 +96,7 @@ async function composeAndReview() {
 
 const progressPercent = computed(() => generateStore.progressPercent)
 const completedCount = computed(() => generateStore.completedCount)
-const totalCount = computed(() => generateStore.totalCount || flattenNodes(outlineStore.outlineTree).length)
+const totalCount = computed(() => generateStore.totalCount || allNodes.value.length)
 
 // ── 预览 ──
 const viewingContent = ref<{ title: string; content: string } | null>(null)
@@ -129,11 +143,12 @@ function viewContent(node: OutlineNode) {
       <span class="progress-text">{{ completedCount }} / {{ totalCount }} 已生成 ({{ progressPercent }}%)</span>
     </div>
 
-    <!-- 章节列表 -->
+    <!-- 章节列表（展示全部层级） -->
     <div class="sections-grid">
-      <template v-for="node in outlineStore.outlineTree" :key="node.id">
+      <template v-for="item in flattenedOutline" :key="item.node.id">
         <SectionCard
-          :node="node"
+          :node="item.node"
+          :depth="item.depth"
           :generating-id="generatingId"
           :streaming-content="streamingContent"
           :section-contents="generateStore.sectionContents"
