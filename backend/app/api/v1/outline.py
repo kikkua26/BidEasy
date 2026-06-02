@@ -160,6 +160,7 @@ async def generate_outline(
     # 调用 AI 生成大纲
     from app.services.outline_service import OutlineService
     from app.core.ai_config import get_ai_config
+    import json as _json
     ai_cfg = await get_ai_config(db)
     service = OutlineService(ai_config=ai_cfg)
     outline_nodes = await service.generate_outline(
@@ -171,6 +172,15 @@ async def generate_outline(
         ],
         additional_requirements=body.additional_requirements,
     )
+
+    # 类型保护：确保是 list[dict]
+    if isinstance(outline_nodes, str):
+        try:
+            outline_nodes = _json.loads(outline_nodes)
+        except _json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="AI 返回格式异常，请重试")
+    if not isinstance(outline_nodes, list):
+        raise HTTPException(status_code=500, detail="AI 返回格式异常，请重试")
 
     # 清除旧大纲节点
     old_nodes = await db.execute(
@@ -241,6 +251,7 @@ async def chat_outline(
     from app.core.ai_config import get_ai_config
     ai_cfg = await get_ai_config(db)
     service = OutlineService(ai_config=ai_cfg)
+    import json as _json
     new_outline = await service.generate_outline(
         project_info=project.project_info or "",
         document_text=doc_text,
@@ -250,6 +261,15 @@ async def chat_outline(
         ],
         additional_requirements=body.message,
     )
+
+    # 类型保护
+    if isinstance(new_outline, str):
+        try:
+            new_outline = _json.loads(new_outline)
+        except _json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="AI 返回格式异常，请重试")
+    if not isinstance(new_outline, list):
+        raise HTTPException(status_code=500, detail="AI 返回格式异常，请重试")
 
     # 保存新大纲（先清旧）
     old_nodes = await db.execute(select(OutlineNode).where(OutlineNode.project_id == project_id))
