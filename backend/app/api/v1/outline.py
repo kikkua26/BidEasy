@@ -174,13 +174,20 @@ async def generate_outline(
     )
 
     # 类型保护：确保是 list[dict]
+    logger.info(f"AI outline type: {type(outline_nodes)}, len: {len(outline_nodes) if isinstance(outline_nodes, (list, str)) else 'N/A'}")
     if isinstance(outline_nodes, str):
         try:
             outline_nodes = _json.loads(outline_nodes)
         except _json.JSONDecodeError:
+            logger.error(f"Failed to parse outline JSON: {outline_nodes[:200]}")
             raise HTTPException(status_code=500, detail="AI 返回格式异常，请重试")
     if not isinstance(outline_nodes, list):
+        logger.error(f"Outline is not list: {type(outline_nodes)}")
         raise HTTPException(status_code=500, detail="AI 返回格式异常，请重试")
+    # 确保每个元素都是 dict
+    outline_nodes = [n for n in outline_nodes if isinstance(n, dict)]
+    if not outline_nodes:
+        raise HTTPException(status_code=500, detail="AI 未返回有效大纲，请重试")
 
     # 清除旧大纲节点
     old_nodes = await db.execute(
