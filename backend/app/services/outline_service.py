@@ -53,12 +53,17 @@ class OutlineService:
 
     def __init__(self, ai_config: dict | None = None):
         cfg = ai_config or {}
-        self.llm = ChatOpenAI(
-            model=cfg.get("model", settings.AI_MODEL),
-            temperature=cfg.get("temperature", settings.AI_TEMPERATURE),
-            api_key=cfg.get("api_key", settings.OPENAI_API_KEY),
-            base_url=cfg.get("base_url", settings.OPENAI_BASE_URL),
-        )
+        kwargs: dict = {
+            "model": cfg.get("model", settings.AI_MODEL),
+            "temperature": cfg.get("temperature", settings.AI_TEMPERATURE),
+            "api_key": cfg.get("api_key", settings.OPENAI_API_KEY),
+            "base_url": cfg.get("base_url", settings.OPENAI_BASE_URL),
+        }
+        # MiMo Token Plan 需要 api-key header
+        extra = cfg.get("extra_headers", {})
+        if extra:
+            kwargs["default_headers"] = extra
+        self.llm = ChatOpenAI(**kwargs)
 
     async def generate_outline(
         self,

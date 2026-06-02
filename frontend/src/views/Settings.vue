@@ -5,6 +5,20 @@
 import { ref, onMounted } from 'vue'
 import { settingsApi, type AISettings } from '@/api/settings'
 
+interface Preset {
+  label: string
+  icon: string
+  ai_base_url: string
+  ai_model: string
+  ai_api_key_prefix: string
+}
+
+const presets: Preset[] = [
+  { label: 'DeepSeek', icon: '🔮', ai_base_url: 'https://api.deepseek.com', ai_model: 'deepseek-chat', ai_api_key_prefix: 'sk-' },
+  { label: 'MiMo Token Plan', icon: '🤖', ai_base_url: 'https://token-plan-cn.xiaomimimo.com/v1', ai_model: 'mimo-v2.5-pro', ai_api_key_prefix: 'tp-' },
+  { label: 'OpenAI', icon: '🧠', ai_base_url: 'https://api.openai.com/v1', ai_model: 'gpt-4o', ai_api_key_prefix: 'sk-' },
+]
+
 const settings = ref<AISettings>({
   ai_api_key: '',
   ai_base_url: 'https://api.deepseek.com',
@@ -15,6 +29,7 @@ const settings = ref<AISettings>({
 const loading = ref(false)
 const saving = ref(false)
 const toast = ref('')
+const showKey = ref(false)
 
 onMounted(async () => {
   loading.value = true
@@ -38,6 +53,12 @@ async function save() {
   }
 }
 
+function applyPreset(p: Preset) {
+  settings.value.ai_base_url = p.ai_base_url
+  settings.value.ai_model = p.ai_model
+  showToast(`已切换到 ${p.label}`)
+}
+
 function showToast(msg: string) {
   toast.value = msg
   setTimeout(() => { toast.value = '' }, 2500)
@@ -57,54 +78,61 @@ function showToast(msg: string) {
     <div v-if="loading" class="loading-state">加载中…</div>
 
     <template v-else>
+      <!-- 快速接入 -->
+      <section class="settings-section">
+        <h3>🚀 快速接入</h3>
+        <p class="section-desc">选择预设方案一键填入配置，再填入 API Key 即可</p>
+
+        <div class="preset-grid">
+          <button
+            v-for="p in presets" :key="p.label"
+            class="preset-btn"
+            :class="{ active: settings.ai_base_url === p.ai_base_url }"
+            @click="applyPreset(p)"
+          >
+            <span class="preset-icon">{{ p.icon }}</span>
+            <span class="preset-label">{{ p.label }}</span>
+            <span class="preset-model">{{ p.ai_model }}</span>
+          </button>
+        </div>
+      </section>
+
       <!-- AI 模型配置 -->
       <section class="settings-section">
         <h3>🤖 AI 模型配置</h3>
-        <p class="section-desc">配置大语言模型的 API 连接信息，支持 DeepSeek / OpenAI 等兼容接口</p>
 
         <div class="form-grid">
           <div class="form-group">
             <label>API Key <span class="required">*</span></label>
-            <input
-              v-model="settings.ai_api_key"
-              type="password"
-              class="form-input"
-              placeholder="sk-..."
-            />
-            <span class="form-hint">模型服务的 API 密钥，留空则使用 .env 中的默认值</span>
+            <div class="key-input-row">
+              <input
+                v-model="settings.ai_api_key"
+                :type="showKey ? 'text' : 'password'"
+                class="form-input"
+                placeholder="sk-... 或 tp-..."
+              />
+              <button class="btn-ghost btn-sm" @click="showKey = !showKey">
+                {{ showKey ? '🙈' : '👁️' }}
+              </button>
+            </div>
+            <span class="form-hint">DeepSeek: sk-xxx | MiMo: tp-xxx | 留空则使用 .env 默认值</span>
           </div>
 
           <div class="form-group">
             <label>Base URL</label>
-            <input
-              v-model="settings.ai_base_url"
-              class="form-input"
-              placeholder="https://api.deepseek.com"
-            />
-            <span class="form-hint">API 服务地址，DeepSeek: https://api.deepseek.com</span>
+            <input v-model="settings.ai_base_url" class="form-input" placeholder="https://api.deepseek.com" />
+            <span class="form-hint">API 服务地址</span>
           </div>
 
           <div class="form-group">
             <label>模型名称</label>
-            <input
-              v-model="settings.ai_model"
-              class="form-input"
-              placeholder="deepseek-chat"
-            />
-            <span class="form-hint">deepseek-chat / gpt-4o / gpt-3.5-turbo 等</span>
+            <input v-model="settings.ai_model" class="form-input" placeholder="deepseek-chat" />
+            <span class="form-hint">deepseek-chat / mimo-v2.5-pro / gpt-4o 等</span>
           </div>
 
           <div class="form-group">
             <label>Temperature</label>
-            <input
-              v-model="settings.ai_temperature"
-              type="number"
-              step="0.1"
-              min="0"
-              max="2"
-              class="form-input"
-              placeholder="0.7"
-            />
+            <input v-model="settings.ai_temperature" type="number" step="0.1" min="0" max="2" class="form-input" placeholder="0.7" />
             <span class="form-hint">0-2，越高越有创造性，越低越稳定（推荐 0.7）</span>
           </div>
         </div>
@@ -128,7 +156,6 @@ function showToast(msg: string) {
       </section>
     </template>
 
-    <!-- Toast -->
     <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
 </template>
@@ -157,11 +184,7 @@ function showToast(msg: string) {
   margin-bottom: 16px;
 }
 
-.settings-section h3 {
-  font-size: 15px;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
+.settings-section h3 { font-size: 15px; color: var(--text-primary); margin-bottom: 4px; }
 
 .section-desc {
   font-size: 12px;
@@ -172,6 +195,52 @@ function showToast(msg: string) {
 
 .settings-section.disabled { opacity: .5; pointer-events: none; }
 
+/* ── 预设按钮 ── */
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s;
+  color: var(--text-secondary);
+}
+
+.preset-btn:hover {
+  border-color: rgba(212, 168, 83, 0.3);
+  background: var(--accent-glow);
+}
+
+.preset-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.preset-icon { font-size: 20px; }
+
+.preset-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.preset-model {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── 表单 ── */
 .form-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -188,6 +257,13 @@ function showToast(msg: string) {
 }
 
 .required { color: var(--red); }
+
+.key-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.key-input-row .form-input { flex: 1; }
 
 .form-input {
   width: 100%;
