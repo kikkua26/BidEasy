@@ -18,8 +18,8 @@
   --border: #252530;
   --border-light: #2e2e3a;
   --radius: 10px;
-  --font-display: 'Noto Serif SC', serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Noto Serif SC', 'PingFang SC', 'Microsoft YaHei', serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
