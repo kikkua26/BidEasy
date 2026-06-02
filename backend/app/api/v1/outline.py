@@ -159,7 +159,9 @@ async def generate_outline(
 
     # 调用 AI 生成大纲
     from app.services.outline_service import OutlineService
-    service = OutlineService()
+    from app.core.ai_config import get_ai_config
+    ai_cfg = await get_ai_config(db)
+    service = OutlineService(ai_config=ai_cfg)
     outline_nodes = await service.generate_outline(
         project_info=project.project_info or "",
         document_text=doc_text,
@@ -236,7 +238,9 @@ async def chat_outline(
 
     # 基于用户反馈重新生成大纲
     from app.services.outline_service import OutlineService
-    service = OutlineService()
+    from app.core.ai_config import get_ai_config
+    ai_cfg = await get_ai_config(db)
+    service = OutlineService(ai_config=ai_cfg)
     new_outline = await service.generate_outline(
         project_info=project.project_info or "",
         document_text=doc_text,

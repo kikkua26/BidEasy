@@ -143,6 +143,16 @@ class Review(Base):
     project = relationship("Project", back_populates="reviews")
 
 
+class AppSetting(Base):
+    """系统设置表（key-value）"""
+    __tablename__ = "app_settings"
+
+    id = pk_column()
+    key = Column(String(100), unique=True, nullable=False)
+    value = Column(Text)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class SolutionLibrary(Base):
     """方案库表（预留）"""
     __tablename__ = "solution_library"

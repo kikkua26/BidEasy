@@ -14,12 +14,13 @@ from app.db.models import OutlineNode, SectionContent
 class GenerateService:
     """内容生成服务"""
 
-    def __init__(self):
+    def __init__(self, ai_config: dict | None = None):
+        cfg = ai_config or {}
         self.llm = ChatOpenAI(
-            model=settings.AI_MODEL,
-            temperature=settings.AI_TEMPERATURE,
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
+            model=cfg.get("model", settings.AI_MODEL),
+            temperature=cfg.get("temperature", settings.AI_TEMPERATURE),
+            api_key=cfg.get("api_key", settings.OPENAI_API_KEY),
+            base_url=cfg.get("base_url", settings.OPENAI_BASE_URL),
             streaming=True,  # 启用流式输出
         )
 

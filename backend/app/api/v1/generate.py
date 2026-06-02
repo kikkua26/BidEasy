@@ -157,7 +157,9 @@ async def generate_section_stream(
         raise HTTPException(status_code=404, detail="大纲节点不存在")
 
     from app.services.generate_service import GenerateService
-    service = GenerateService()
+    from app.core.ai_config import get_ai_config
+    ai_cfg = await get_ai_config(db)
+    service = GenerateService(ai_config=ai_cfg)
 
     async def event_stream():
         yield f"data: {json.dumps({'type': 'start', 'outline_id': outline_id, 'title': node.title})}\n\n"
@@ -230,7 +232,9 @@ async def compose_draft(
 
     # 组装
     from app.services.generate_service import GenerateService
-    service = GenerateService()
+    from app.core.ai_config import get_ai_config
+    ai_cfg = await get_ai_config(db)
+    service = GenerateService(ai_config=ai_cfg)
     draft = service.compose_draft(nodes, contents)
 
     return ResponseModel(data={

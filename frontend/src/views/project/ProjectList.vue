@@ -42,9 +42,12 @@ function handleDelete(id: string) {
         <h1>奇易AI编标</h1>
         <p class="subtitle">施工行业技术标智能编制系统</p>
       </div>
-      <button class="btn btn-primary" @click="showCreate = true">
-        + 新建项目
-      </button>
+      <div class="header-actions">
+        <button class="btn btn-ghost" @click="router.push('/settings')">⚙️ 设置</button>
+        <button class="btn btn-primary" @click="showCreate = true">
+          + 新建项目
+        </button>
+      </div>
     </header>
 
     <!-- 创建项目对话框 -->

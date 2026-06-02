@@ -16,6 +16,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '我的项目' },
   },
   {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('@/views/Settings.vue'),
+    meta: { title: '系统设置' },
+  },
+  {
     path: '/project/:id',
     component: () => import('@/layouts/ProjectLayout.vue'),
     children: [

@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
+from app.core.ai_config import get_ai_config
 
 
 def _extract_json(text: str) -> dict:
@@ -50,12 +51,13 @@ from app.prompts.outline_prompts import (
 class OutlineService:
     """大纲服务"""
 
-    def __init__(self):
+    def __init__(self, ai_config: dict | None = None):
+        cfg = ai_config or {}
         self.llm = ChatOpenAI(
-            model=settings.AI_MODEL,
-            temperature=settings.AI_TEMPERATURE,
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
+            model=cfg.get("model", settings.AI_MODEL),
+            temperature=cfg.get("temperature", settings.AI_TEMPERATURE),
+            api_key=cfg.get("api_key", settings.OPENAI_API_KEY),
+            base_url=cfg.get("base_url", settings.OPENAI_BASE_URL),
         )
 
     async def generate_outline(
