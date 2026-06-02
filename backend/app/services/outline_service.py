@@ -11,6 +11,17 @@ from app.core.config import settings
 from app.core.ai_config import get_ai_config
 
 
+def _get_content(response) -> str:
+    """从 AI 响应中获取内容（兼容推理模型 reasoning_content）"""
+    content = response.content or ""
+    # 推理模型（MiMo等）内容在 reasoning_content 中
+    if not content and hasattr(response, "additional_kwargs"):
+        reasoning = response.additional_kwargs.get("reasoning_content", "")
+        if reasoning:
+            content = reasoning
+    return content
+
+
 def _extract_json(text: str) -> dict:
     """从 AI 回复中鲁棒地提取 JSON（处理 markdown 代码块和前后文字）"""
     # 尝试从 ```json ... ``` 中提取
@@ -53,16 +64,19 @@ class OutlineService:
 
     def __init__(self, ai_config: dict | None = None):
         cfg = ai_config or {}
+        api_key = cfg.get("api_key", settings.OPENAI_API_KEY)
+        extra = cfg.get("extra_headers", {})
         kwargs: dict = {
             "model": cfg.get("model", settings.AI_MODEL),
             "temperature": cfg.get("temperature", settings.AI_TEMPERATURE),
-            "api_key": cfg.get("api_key", settings.OPENAI_API_KEY),
             "base_url": cfg.get("base_url", settings.OPENAI_BASE_URL),
         }
-        # MiMo Token Plan 需要 api-key header
-        extra = cfg.get("extra_headers", {})
         if extra:
+            # MiMo Token Plan: 只用 api-key header，不用 Authorization
+            kwargs["api_key"] = "not-used"
             kwargs["default_headers"] = extra
+        else:
+            kwargs["api_key"] = api_key
         self.llm = ChatOpenAI(**kwargs)
 
     async def generate_outline(
@@ -102,7 +116,7 @@ class OutlineService:
         ])
 
         # 解析JSON输出
-        raw = response.content
+        raw = _get_content(response)
         try:
             return _extract_json(raw)
         except (json.JSONDecodeError, ValueError):
@@ -137,9 +151,8 @@ class OutlineService:
             HumanMessage(content=user_message),
         ])
 
-        raw = response.content
+        raw = _get_content(response)
         try:
-            # 从 AI 回复中提取 JSON（AI 可能在 JSON 前后加文字）
             data = _extract_json(raw)
             return {
                 "message": data.get("reply", "大纲已更新"),
@@ -148,7 +161,7 @@ class OutlineService:
             }
         except (json.JSONDecodeError, ValueError):
             return {
-                "message": response.content,
+                "message": raw,
                 "outline": current_outline,
                 "changes": [],
             }
@@ -174,7 +187,7 @@ class OutlineService:
             HumanMessage(content="请提取评分标准。"),
         ])
 
-        raw = response.content
+        raw = _get_content(response)
         try:
             if "```json" in raw:
                 raw = raw.split("```json")[1].split("```")[0].strip()

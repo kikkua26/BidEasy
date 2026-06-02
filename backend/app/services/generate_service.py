@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
+from app.services.outline_service import _get_content
 from app.prompts.generate_prompts import SECTION_GENERATE_PROMPT
 from app.db.models import OutlineNode, SectionContent
 
@@ -16,16 +17,18 @@ class GenerateService:
 
     def __init__(self, ai_config: dict | None = None):
         cfg = ai_config or {}
+        extra = cfg.get("extra_headers", {})
         kwargs: dict = {
             "model": cfg.get("model", settings.AI_MODEL),
             "temperature": cfg.get("temperature", settings.AI_TEMPERATURE),
-            "api_key": cfg.get("api_key", settings.OPENAI_API_KEY),
             "base_url": cfg.get("base_url", settings.OPENAI_BASE_URL),
             "streaming": True,
         }
-        extra = cfg.get("extra_headers", {})
         if extra:
+            kwargs["api_key"] = "not-used"
             kwargs["default_headers"] = extra
+        else:
+            kwargs["api_key"] = cfg.get("api_key", settings.OPENAI_API_KEY)
         self.llm = ChatOpenAI(**kwargs)
 
     async def generate_section(
@@ -67,7 +70,7 @@ class GenerateService:
             HumanMessage(content=f"请生成「{section_title}」的详细内容。"),
         ])
 
-        return response.content
+        return _get_content(response)
 
     async def generate_section_stream(
         self,
@@ -97,8 +100,12 @@ class GenerateService:
             SystemMessage(content=prompt),
             HumanMessage(content=f"请生成「{section_title}」的详细内容。"),
         ]):
-            if chunk.content:
-                yield chunk.content
+            # 推理模型内容在 reasoning_content
+            text = chunk.content or ""
+            if not text and hasattr(chunk, "additional_kwargs"):
+                text = chunk.additional_kwargs.get("reasoning_content", "")
+            if text:
+                yield text
 
     def compose_draft(
         self,
